@@ -317,6 +317,13 @@
             } else if (Notification.permission === 'granted') {
                 notifBtn.textContent = 'Notifications: enabled';
                 notifBtn.disabled = true;
+                if (window.notifications && window.notifications.getIdlePermission) {
+                    window.notifications.getIdlePermission().then(state => {
+                        if (state !== 'prompt') return;
+                        notifBtn.textContent = 'Detect activity in other apps';
+                        notifBtn.disabled = false;
+                    });
+                }
             } else if (Notification.permission === 'denied') {
                 notifBtn.textContent = 'Notifications blocked in browser settings';
                 notifBtn.disabled = true;
@@ -368,6 +375,15 @@
         if (closeBtn) closeBtn.addEventListener('click', closeSettings);
         const saveBtn = document.getElementById('settingsSaveBtn');
         if (saveBtn) saveBtn.addEventListener('click', saveSettingsFromForm);
+        const overlay = document.getElementById('settingsOverlay');
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeSettings();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && overlay.style.display === 'flex') closeSettings();
+            });
+        }
         const notifBtn = document.getElementById('cfgNotifBtn');
         if (notifBtn) {
             notifBtn.addEventListener('click', async () => {

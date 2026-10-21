@@ -1,13 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <rect width="512" height="512" rx="96" fill="#3f51b5"/>
-    <g transform="translate(96 96)" fill="#fff">
-        <!-- stylized footprint + speedometer arc -->
-        <path d="M120 60c14 0 26 12 26 28 0 18-10 30-18 40-10 12-12 22-10 36 2 14-6 24-18 24-12 0-22-12-20-26 4-26 18-46 30-66 4-8 8-16 4-22-2-6 0-14 6-14z"/>
-        <circle cx="180" cy="100" r="14"/>
-        <circle cx="216" cy="140" r="11"/>
-        <circle cx="232" cy="186" r="9"/>
-        <path d="M40 240 h240 v40 h-240 z" rx="10"/>
-        <path d="M40 280 l30 -40 h180 l30 40" fill="none" stroke="#fff" stroke-width="14" stroke-linejoin="round"/>
-        <path d="M70 290 v30 M250 290 v30" stroke="#fff" stroke-width="14"/>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <rect x="68" y="68" width="400" height="400" rx="90" fill="#0a0a0a"/>
+    <rect x="50" y="50" width="380" height="380" rx="80" fill="#fde047" stroke="#0a0a0a" stroke-width="20"/>
+    <path d="M123 240H201L227 188L279 292L305 240H357" fill="none" stroke="#0a0a0a" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

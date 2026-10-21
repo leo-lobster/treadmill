@@ -1,19 +1,17 @@
 {
     "name": "Treadmill",
     "short_name": "Treadmill",
-    "description": "Treadmill control with daily goal tracking and Apple Health logging.",
+    "description": "Control a PitPat treadmill over Bluetooth and track a daily walking goal.",
     "start_url": "./index.html",
     "scope": "./",
     "display": "standalone",
     "orientation": "portrait-primary",
-    "background_color": "#fafafa",
-    "theme_color": "#3f51b5",
+    "background_color": "#fdf6e3",
+    "theme_color": "#fdf6e3",
     "icons": [
-        {
-            "src": "icon.svg",
-            "sizes": "any",
-            "type": "image/svg+xml",
-            "purpose": "any maskable"
-        }
+        { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+        { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+        { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
     ]
 }

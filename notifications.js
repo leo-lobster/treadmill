@@ -30,13 +30,18 @@
         return new Date().toLocaleDateString('sv-SE');
     }
 
+    const NOTIFICATION_ICON = 'icons/icon-192.png';
+
     let lastActivityTs = Date.now();
     let activeStreakStart = Date.now();
     let lastSessionFinishedTs = 0;
+    let idleDetector = null;
+    let idleSince = 0;
 
     function noteActivity() {
         const now = Date.now();
-        if (now - lastActivityTs > ACTIVITY_TTL_MS) {
+        // With the IdleDetector running, page events are not the source of truth for the desk streak.
+        if (!idleDetector && now - lastActivityTs > ACTIVITY_TTL_MS) {
             activeStreakStart = now;
         }
         lastActivityTs = now;
@@ -53,7 +58,14 @@
         }
     }
 
+    function detectorSaysActive(detector) {
+        return detector.userState === 'active' && detector.screenState === 'unlocked';
+    }
+
+    // Page events only see activity inside this window. The IdleDetector sees the whole machine,
+    // which is what "time at the desk" means when the app sits in the background.
     function isUserActive() {
+        if (idleDetector) return detectorSaysActive(idleDetector);
         return Date.now() - lastActivityTs < ACTIVITY_TTL_MS;
     }
 
@@ -62,23 +74,37 @@
         return Math.floor((Date.now() - activeStreakStart) / 60000);
     }
 
-    async function startIdleDetector() {
-        if (!('IdleDetector' in window)) return;
+    async function getIdlePermission() {
+        if (!('IdleDetector' in window)) return 'unsupported';
         try {
-            const perm = await IdleDetector.requestPermission();
-            if (perm !== 'granted') return;
+            return (await navigator.permissions.query({ name: 'idle-detection' })).state;
+        } catch {
+            return 'unsupported';
+        }
+    }
+
+    // IdleDetector.requestPermission() needs a user gesture, so it is only called from a click;
+    // on page load the detector starts only if permission was granted earlier.
+    async function startIdleDetector(askPermission) {
+        if (!('IdleDetector' in window) || idleDetector) return;
+        try {
+            const perm = askPermission ? await IdleDetector.requestPermission() : await getIdlePermission();
+            if (perm !== 'granted' || idleDetector) return;
             const detector = new IdleDetector();
             detector.addEventListener('change', () => {
-                if (detector.userState === 'active' && detector.screenState === 'unlocked') {
-                    noteActivity();
-                } else {
-
-                    lastActivityTs = 0;
+                if (detectorSaysActive(detector)) {
+                    if (idleSince && Date.now() - idleSince > ACTIVITY_TTL_MS) {
+                        activeStreakStart = Date.now();
+                    }
+                    idleSince = 0;
+                    onUserActivity();
+                } else if (!idleSince) {
+                    idleSince = Date.now();
                 }
             });
             await detector.start({ threshold: 60000 });
+            idleDetector = detector;
         } catch {
-
         }
     }
 
@@ -190,6 +216,7 @@
 
         if (cfg.excludeWeekends && (dow === 0 || dow === 6)) return null;
         if (hour < cfg.activeHoursStart || hour >= cfg.activeHoursEnd) return null;
+        if (window.treadmill && window.treadmill.isWalking()) return null;
         if (!isUserActive()) return null;
         if (progress.goalMet && progress.splitMet) return null;
         if (!('Notification' in window) || Notification.permission !== 'granted') return null;
@@ -231,8 +258,8 @@
                     body: msg.body,
                     tag: 'treadmill-' + trigger,
                     renotify: false,
-                    icon: 'icon.svg',
-                    badge: 'icon.svg',
+                    icon: NOTIFICATION_ICON,
+                    badge: NOTIFICATION_ICON,
                     data: { trigger, urgency, ts: Date.now() }
                 });
                 shown = true;
@@ -243,7 +270,7 @@
                 new Notification(msg.title, {
                     body: msg.body,
                     tag: 'treadmill-' + trigger,
-                    icon: 'icon.svg'
+                    icon: NOTIFICATION_ICON
                 });
                 shown = true;
             } catch {}
@@ -262,6 +289,8 @@
 
     function check() {
         if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        // Keeps the service worker's copy of "last active" fresh while the user works in other apps.
+        if (idleDetector && isUserActive()) onUserActivity();
         const sessions = window.loadSessions
             ? window.loadSessions()
             : JSON.parse(localStorage.getItem('treadmill_sessions') || '[]');
@@ -315,8 +344,8 @@
                         body,
                         tag: 'treadmill-milestone-' + top.pct,
                         renotify: false,
-                        icon: 'icon.svg',
-                        badge: 'icon.svg',
+                        icon: NOTIFICATION_ICON,
+                        badge: NOTIFICATION_ICON,
                         data: { trigger: 'milestone', pct: top.pct }
                     });
                     shown = true;
@@ -324,7 +353,7 @@
             }
             if (!shown) {
                 try {
-                    new Notification(top.title, { body, tag: 'treadmill-milestone-' + top.pct, icon: 'icon.svg' });
+                    new Notification(top.title, { body, tag: 'treadmill-milestone-' + top.pct, icon: NOTIFICATION_ICON });
                     shown = true;
                 } catch {}
             }
@@ -360,11 +389,15 @@
 
     async function requestPermission() {
         if (!('Notification' in window)) return 'unsupported';
+        // Started before any await so the request still runs inside the click's user activation.
+        const idleRequest = startIdleDetector(true);
         const state = loadState();
         state.permissionAsked = true;
         saveState(state);
-        if (Notification.permission === 'granted') return 'granted';
-        if (Notification.permission === 'denied') return 'denied';
+        if (Notification.permission !== 'default') {
+            await idleRequest;
+            return Notification.permission;
+        }
         try {
             const perm = await Notification.requestPermission();
             if (perm === 'granted') {
@@ -384,6 +417,7 @@
                 }
                 reschedule();
             }
+            await idleRequest;
             return perm;
         } catch {
             return 'denied';
@@ -430,6 +464,7 @@
     window.notifications = {
         init,
         requestPermission,
+        getIdlePermission,
         reschedule,
         check,
         checkMilestones,
