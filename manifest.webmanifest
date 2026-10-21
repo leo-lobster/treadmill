@@ -1,0 +1,19 @@
+{
+    "name": "Treadmill",
+    "short_name": "Treadmill",
+    "description": "Treadmill control with daily goal tracking and Apple Health logging.",
+    "start_url": "./index.html",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#fafafa",
+    "theme_color": "#3f51b5",
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}
