@@ -291,8 +291,8 @@ function bluetoothUnavailableMessage() {
     }
     if (!navigator.bluetooth) {
         return IS_MAC
-            ? 'Safari and Firefox can\'t talk to Bluetooth devices. Open this page in Chrome, Edge, Brave or Arc.'
-            : 'This browser has no Web Bluetooth. Open this page in Chrome, Edge, Brave or Arc.';
+            ? 'Safari and Firefox can\'t talk to Bluetooth devices. Open this page in Chrome, Edge or Arc.'
+            : 'This browser has no Web Bluetooth. Open this page in Chrome, Edge or Arc.';
     }
     return '';
 }
@@ -323,7 +323,10 @@ async function checkBluetoothSupport() {
 function describeBluetoothError(err) {
     const text = String((err && err.message) || err);
     if (err && err.name === 'NotFoundError' && /cancel/i.test(text)) return '';
-    if (/adapter not available|globally disabled|bluetooth.*(off|unavailable)/i.test(text)) return BLUETOOTH_OFF_MESSAGE;
+    if (/globally disabled/i.test(text)) {
+        return 'Web Bluetooth is turned off in this browser. In Brave, enable brave://flags/#brave-web-bluetooth-api and relaunch.';
+    }
+    if (/adapter not available|bluetooth.*(off|unavailable)/i.test(text)) return BLUETOOTH_OFF_MESSAGE;
     return 'Bluetooth error: ' + text;
 }
 
