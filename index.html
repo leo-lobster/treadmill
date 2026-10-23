@@ -230,7 +230,6 @@
         }
         .session-chip:nth-child(3n+2) { background: var(--blue); }
         .session-chip:nth-child(3n) { background: var(--lime); }
-        .session-chip .chip-meta { font-weight: 600; opacity: 0.85; margin-left: 4px; }
         .session-chip--short { background: var(--surface) !important; color: var(--ink-mute); }
         .session-chip--empty {
             background: transparent;
@@ -407,9 +406,9 @@
         .stat:nth-child(1) .stat-label-pill { background: var(--yellow); }
         .stat:nth-child(2) .stat-label-pill { background: var(--pink); }
         .stat:nth-child(3) .stat-label-pill { background: var(--lime); }
-        .stat:nth-child(4) .stat-label-pill { background: var(--blue); }
-        .stat:nth-child(5) .stat-label-pill { background: var(--orange); }
-        .stat:nth-child(6) .stat-label-pill { background: var(--surface); }
+        .stat:nth-child(4) .stat-label-pill { background: var(--orange); }
+        .stat:nth-child(5) .stat-label-pill { background: var(--surface); }
+        .stat--wide { grid-column: span 2; }
         .stat-label-pill {
             display: inline-block;
             background: var(--yellow);
@@ -947,14 +946,10 @@
                         <span class="stat-value" id="duration">—</span>
                     </div>
                     <div class="stat">
-                        <span class="stat-label-pill">Steps</span>
-                        <span class="stat-value" id="steps">—</span>
-                    </div>
-                    <div class="stat">
                         <span class="stat-label-pill">Calories</span>
                         <span class="stat-value" id="calories">—</span>
                     </div>
-                    <div class="stat">
+                    <div class="stat stat--wide">
                         <span class="stat-label-pill">Status</span>
                         <span id="statusChip" class="status-chip chip-disconnected">
                             <span class="status-dot"></span>
@@ -1014,7 +1009,6 @@
                             <tr>
                                 <th>Date</th>
                                 <th>Duration</th>
-                                <th class="num">Steps</th>
                                 <th class="num">Calories</th>
                                 <th class="num">Avg Speed</th>
                                 <th></th>

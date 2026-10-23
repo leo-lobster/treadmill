@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'treadmill-v6';
+const CACHE_NAME = 'treadmill-v7';
 const SHELL = [
     './',
     './index.html',
@@ -32,12 +32,17 @@ self.addEventListener('activate', (event) => {
 });
 
 // Network first: a new deploy shows up on the next online launch. The cache only answers
-// when offline, or when the local dev server isn't running.
+// when offline, or when the local dev server isn't running. 'no-cache' makes the browser
+// revalidate with the server, so its HTTP cache can't hand out an old index.html next to new scripts.
 self.addEventListener('fetch', (event) => {
     const request = event.request;
     if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+    // A navigation request can't be copied with new options, so fetch it by URL.
+    const fresh = request.mode === 'navigate'
+        ? fetch(request.url, { cache: 'no-cache' })
+        : fetch(request, { cache: 'no-cache' });
     event.respondWith(
-        fetch(request).then(resp => {
+        fresh.then(resp => {
             if (resp.ok && resp.type === 'basic') {
                 const respClone = resp.clone();
                 caches.open(CACHE_NAME).then(c => c.put(request, respClone)).catch(() => {});

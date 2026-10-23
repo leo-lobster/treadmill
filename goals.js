@@ -197,8 +197,7 @@
                 const isShort = (s.duration || 0) < minSecs;
                 const cls = isShort ? 'session-chip session-chip--short' : 'session-chip';
                 const prefix = isShort ? '· ' : '';
-                const steps = (typeof s.steps === 'number') ? ` <span class="chip-meta">${s.steps.toLocaleString()} st</span>` : '';
-                return `<span class="${cls}">${prefix}${fmtChip(s.duration || 0)}${steps}</span>`;
+                return `<span class="${cls}">${prefix}${fmtChip(s.duration || 0)}</span>`;
             }).join('')
             : '<span class="session-chip session-chip--empty">no sessions yet</span>';
 

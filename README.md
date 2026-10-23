@@ -10,7 +10,7 @@ The stock app wants an account, your phone number, a notification permission to 
 
 ## What it does
 
-- **Live readout.** Speed, distance, duration, steps, calories and belt state, updated with every Bluetooth notification.
+- **Live readout.** Speed, distance, duration, calories and belt state, updated with every Bluetooth notification.
 - **Speed control.** 1–6 km/h slider plus ±0.1 buttons. Slider and buttons stay in sync; whichever you touch wins.
 - **Daily goal.** Pick minutes per day. Today's progress, a 7-day bar chart and a weekday streak (weekends optional). A minimum session length makes two real walks count, not one long one plus a few seconds.
 - **Auto-logged history.** Every walk is recorded as it happens. Pausing keeps the walk going, and stopping and restarting within 60 s continues it instead of starting a new one.
@@ -83,9 +83,9 @@ All paths are relative, so the app works from a sub-path like that without chang
 | `notifications.js` | Reminder logic and activity detection |
 | `sw.js` | Offline cache and background reminder checks |
 
-**Protocol.** The treadmill exposes service `0000fba0-…`, notifies on characteristic `fba2` and accepts writes on `fba1`. Each notification (≥ 31 bytes, big-endian) carries speed (`u16` at byte 3, ×1000), distance (`u32` at 7), steps (`u32` at 14), calories (`u16` at 18), elapsed time in ms (`u32` at 20) and a flags byte at 26 (bit 7: imperial units, bits 3–4: starting / running / paused / stopped). The app answers every notification with either a queued command or a heartbeat (`6a 05 fd f8 43`). Commands are 23-byte packets starting `6a 17`, carrying target speed and a start / pause / stop code, with an XOR checksum over bytes 1–20 and a trailing `43`.
+**Protocol.** The treadmill exposes service `0000fba0-…`, notifies on characteristic `fba2` and accepts writes on `fba1`. Each notification (≥ 31 bytes, big-endian) carries speed (`u16` at byte 3, ×1000), target speed (`u16` at 5), distance (`u32` at 7), calories (`u16` at 18), elapsed time in ms (`u32` at 20) and a flags byte at 26 (bit 7: imperial units, bits 3–4: starting / running / paused / stopped). Steps aren't shown: the step fields stayed at 0 on the hardware this was tested with. The app answers every notification with either a queued command or a heartbeat (`6a 05 fd f8 43`). Commands are 23-byte packets starting `6a 17`, carrying target speed and a start / pause / stop code, with an XOR checksum over bytes 1–20 and a trailing `43`.
 
-**Data.** Sessions are stored in `localStorage` under `treadmill_sessions`, newest first: `{ date, duration, steps, calories, avgSpeed, speedUnit }`, with `date` as a Unix timestamp in ms and `duration` in seconds. A copy goes to IndexedDB so the service worker can read it.
+**Data.** Sessions are stored in `localStorage` under `treadmill_sessions`, newest first: `{ date, duration, calories, avgSpeed, speedUnit }`, with `date` as a Unix timestamp in ms and `duration` in seconds. A copy goes to IndexedDB so the service worker can read it.
 
 ## Safety
 

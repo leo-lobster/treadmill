@@ -14,7 +14,6 @@ const btNotice = document.getElementById('btNotice');
 const speedDiv = document.getElementById('speed');
 const distanceDiv = document.getElementById('distance');
 const caloriesDiv = document.getElementById('calories');
-const stepsDiv = document.getElementById('steps');
 const durationDiv = document.getElementById('duration');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -76,7 +75,7 @@ function renderSessionTable() {
     historyTableBody.replaceChildren();
     if (sessions.length === 0) {
         const td = historyTableBody.insertRow().insertCell();
-        td.colSpan = 6;
+        td.colSpan = 5;
         td.className = 'history-empty';
         td.textContent = 'No sessions yet — your walks will appear here.';
         return;
@@ -87,7 +86,6 @@ function renderSessionTable() {
         if (!isNaN(avgSpeed)) {
             avgSpeedDisplay = avgSpeed.toFixed(2) + ' ' + (s.speedUnit || '');
         }
-        const stepsDisplay = (typeof s.steps === 'number') ? s.steps.toLocaleString() : (s.steps || '—');
         const tr = historyTableBody.insertRow();
         const addCell = (text, className) => {
             const td = tr.insertCell();
@@ -97,7 +95,6 @@ function renderSessionTable() {
         };
         addCell(formatSessionDate(s.date));
         addCell(formatDuration(s.duration || 0));
-        addCell(stepsDisplay, 'num');
         addCell(s.calories || '—', 'num');
         addCell(avgSpeedDisplay, 'num');
         const deleteBtn = document.createElement('button');
@@ -187,7 +184,6 @@ function updateDashboard(data) {
     speedDiv.textContent = data.speed || '—';
     distanceDiv.textContent = data.distance || '—';
     caloriesDiv.textContent = data.calories || '—';
-    stepsDiv.textContent = (data.steps !== undefined && data.steps !== null && data.steps !== '-') ? data.steps : '—';
     if (data.duration && typeof data.duration === 'number') {
         durationDiv.textContent = formatDuration(data.duration);
     } else if (typeof data.duration === 'string' && !isNaN(parseFloat(data.duration))) {
@@ -281,8 +277,34 @@ function formatDuration(seconds) {
 }
 
 let pendingData = null;
+let lastCommandMs = 0;
 function send_data(packet) {
     pendingData = packet;
+    lastCommandMs = Date.now();
+}
+
+// The slider follows the treadmill's own target speed, so it is right after connecting mid-walk or
+// after a change on the remote. Otherwise +/- would step from a stale value (e.g. 4.0 → 1.1).
+// It holds off while the user drags the slider or a command of ours is still taking effect.
+const SPEED_FOLLOW_GRACE_MS = 3000;
+const SPEED_FOLLOW_FALLBACK_GRACE_MS = 15000;
+let sliderHeld = false;
+function followTreadmillSpeed(targetSpeed, currentSpeed) {
+    if (pendingData || sliderHeld) return;
+    const sinceCommand = Date.now() - lastCommandMs;
+    let speed;
+    if (targetSpeed >= 1000 && targetSpeed <= 6000) {
+        if (sinceCommand < SPEED_FOLLOW_GRACE_MS) return;
+        speed = targetSpeed;
+    } else {
+        // No usable target speed: the current speed lags while the belt ramps up, so wait longer after a command.
+        if (sinceCommand < SPEED_FOLLOW_FALLBACK_GRACE_MS) return;
+        speed = currentSpeed;
+    }
+    speed = Math.round(speed / 100) * 100;
+    if (speed < 1000 || speed > 6000 || speed === curTargetSpeed) return;
+    curTargetSpeed = speed;
+    syncSliderToTargetSpeed();
 }
 
 function bluetoothUnavailableMessage() {
@@ -427,7 +449,6 @@ function handleNotification(event) {
             speed: "-",
             distance: "-",
             calories: "-",
-            steps: "-",
             duration: "-",
             status: "Invalid"
         };
@@ -448,9 +469,9 @@ function handleNotification(event) {
     }
 
     const current_speed = u16(3);
+    const target_speed = u16(5);
     const distance = u32(7);
     const calories = (value.getUint8(18) << 8) | value.getUint8(19);
-    const steps = u32(14);
     const duration = u32(20);
     const flags = value.getUint8(26);
     const unit_mode = (flags & 128) === 128 ? 1 : 0;
@@ -467,15 +488,15 @@ function handleNotification(event) {
         speed: (current_speed / 1000).toFixed(2) + " " + speed_unit,
         distance: (distance / 1000).toFixed(2) + " " + distance_unit,
         calories: calories + " kcal",
-        steps: steps,
         duration: Math.round(duration / 1000),
         status: statusArr[running_state] || "Unknown",
-        _raw: { current_speed, distance, calories, steps, duration, speed_unit }
+        _raw: { current_speed, target_speed, distance, calories, duration, speed_unit }
     };
 
     debugLog("Parsed treadmill data:", treadmillData);
     updateDashboard(treadmillData);
     updateRunningState(running_state);
+    if (running_state === 1) followTreadmillSpeed(target_speed, current_speed);
 
     const MERGE_WINDOW_MS = 60 * 1000;
     const MAX_TICK_MS = 10 * 1000;
@@ -491,14 +512,13 @@ function handleNotification(event) {
                 const lastEnd = last.date + last.duration * 1000;
                 const inWindow = now - lastEnd < MERGE_WINDOW_MS && now - lastEnd > -MAX_TICK_MS;
                 const prevKcal = parseFloat(last.calories) || 0;
-                const countersConsistent = steps >= (last.steps || 0) && calories >= prevKcal;
+                const countersConsistent = calories >= prevKcal;
                 if (inWindow && countersConsistent) resumed = last;
             }
             if (resumed) {
                 const prevKcal = parseFloat(resumed.calories) || 0;
                 sessionStartData = {
                     date: resumed.date,
-                    stepsBase: steps - (resumed.steps || 0),
                     calBase: calories - prevKcal,
                     durMsAccum: (resumed.duration || 0) * 1000,
                     lastTickMs: now,
@@ -509,7 +529,6 @@ function handleNotification(event) {
             } else {
                 sessionStartData = {
                     date: now,
-                    stepsBase: steps,
                     calBase: calories,
                     durMsAccum: 0,
                     lastTickMs: now,
@@ -528,13 +547,11 @@ function handleNotification(event) {
         }
 
         const durationSec = Math.round(sessionStartData.durMsAccum / 1000);
-        const sessionSteps = Math.max(0, steps - sessionStartData.stepsBase);
         const sessionCal = Math.max(0, calories - sessionStartData.calBase);
         const avgSpeed = (sessionStartData.speedSum / sessionStartData.speedCount) / 1000;
         upsertLiveSession({
             date: sessionStartData.date,
             duration: durationSec,
-            steps: sessionSteps,
             calories: sessionCal + ' kcal',
             avgSpeed: avgSpeed,
             speedUnit: sessionStartData.speedUnit || ''
@@ -679,6 +696,8 @@ speedDownBtn.addEventListener('click', () => {
 speedSlider.addEventListener('input', () => {
     sliderValue.textContent = parseFloat(speedSlider.value).toFixed(1);
 });
+speedSlider.addEventListener('pointerdown', () => { sliderHeld = true; });
+['pointerup', 'pointercancel'].forEach(type => window.addEventListener(type, () => { sliderHeld = false; }));
 speedSlider.addEventListener('change', () => {
     if (!connected) return;
     curTargetSpeed = Math.round(parseFloat(speedSlider.value) * 1000);
