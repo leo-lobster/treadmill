@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check JavaScript syntax
+        run: for f in *.js; do node --check "$f"; done
+
+      - name: Check the manifest is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('manifest.webmanifest', 'utf8'))"
+
+      # Publish only the app, not the README, workflows or other repo files.
+      - name: Collect site files
+        run: |
+          mkdir _site
+          cp index.html manifest.webmanifest icon.svg *.js _site/
+          cp -r icons _site/
+
+      - uses: actions/configure-pages@v6
+        if: github.event_name != 'pull_request'
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

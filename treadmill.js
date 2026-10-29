@@ -3,12 +3,17 @@ const SERVICE_UUID = "0000fba0-0000-1000-8000-00805f9b34fb";
 const NOTIFY_CHAR_UUID = "0000fba2-0000-1000-8000-00805f9b34fb";
 const WRITE_CHAR_UUID = "0000fba1-0000-1000-8000-00805f9b34fb";
 
+// Packet logging floods the console (one line per BLE notification); opt in with ?debug or localStorage treadmill_debug=1.
+const DEBUG = new URLSearchParams(location.search).has('debug') || localStorage.getItem('treadmill_debug') === '1';
+const debugLog = DEBUG ? console.log.bind(console) : () => {};
+const toHex = bytes => Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(" ");
+const IS_MAC = /Mac/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
+
 const connectBtn = document.getElementById('connectBtn');
-const statusDiv = document.getElementById('status');
+const btNotice = document.getElementById('btNotice');
 const speedDiv = document.getElementById('speed');
 const distanceDiv = document.getElementById('distance');
 const caloriesDiv = document.getElementById('calories');
-const stepsDiv = document.getElementById('steps');
 const durationDiv = document.getElementById('duration');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -28,7 +33,25 @@ const snackbar = document.getElementById('snackbar');
 
 let sessionActive = false;
 let sessionStartData = null;
-let lastSession = null;
+
+const TRASH_ICON_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>';
+
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const relativeDayFmt = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+function formatSessionDate(value) {
+    const d = new Date(value);
+    if (isNaN(d)) return '—';
+    const startOfDay = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const daysAgo = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+    let day;
+    if (daysAgo === 0 || daysAgo === 1) day = relativeDayFmt.format(-daysAgo, 'day');
+    else if (daysAgo > 1 && daysAgo < 7) day = weekdayFmt.format(d);
+    else day = dateFmt.format(d);
+    return day.charAt(0).toUpperCase() + day.slice(1) + ', ' + timeFmt.format(d);
+}
 
 function loadSessions() {
     let sessions = [];
@@ -40,54 +63,58 @@ function loadSessions() {
 function saveSessions(sessions) {
     localStorage.setItem('treadmill_sessions', JSON.stringify(sessions));
 }
-function addSession(session) {
-    const sessions = loadSessions();
-    sessions.unshift(session);
-    saveSessions(sessions);
-    renderSessionTable();
-}
 function deleteSession(idx) {
     const sessions = loadSessions();
     sessions.splice(idx, 1);
     saveSessions(sessions);
     renderSessionTable();
 }
+// Rows are built with textContent: imported history files are untrusted input.
 function renderSessionTable() {
     const sessions = loadSessions();
-    historyTableBody.innerHTML = '';
-    sessions.forEach((s, i) => {
-        let avgSpeedDisplay = '-';
-        if (typeof s.avgSpeed === 'number' && !isNaN(s.avgSpeed)) {
-            avgSpeedDisplay = s.avgSpeed.toFixed(2) + ' ' + (s.speedUnit || '');
-        } else if (typeof s.avgSpeed === 'string' && !isNaN(parseFloat(s.avgSpeed))) {
-            avgSpeedDisplay = parseFloat(s.avgSpeed).toFixed(2) + ' ' + (s.speedUnit || '');
-        }
-        let dateStr = '-';
-        if (typeof s.date === 'number' || typeof s.date === 'string') {
-            dateStr = dateFns.formatRelative(new Date(s.date), new Date());
-        }
-        const stepsDisplay = (typeof s.steps === 'number') ? s.steps.toLocaleString() : (s.steps || '—');
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${dateStr}</td>
-            <td>${formatDuration(s.duration)}</td>
-            <td class="num">${stepsDisplay}</td>
-            <td class="num">${s.calories || '—'}</td>
-            <td class="num">${avgSpeedDisplay}</td>
-            <td class="num"><button class="history-action-btn" title="Delete" onclick="window.deleteSessionFromTable(${i})">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-            </button></td>
-        `;
-        historyTableBody.appendChild(tr);
-    });
+    historyTableBody.replaceChildren();
     if (sessions.length === 0) {
-        historyTableBody.innerHTML = '<tr><td colspan="6" class="history-empty">No sessions yet — your walks will appear here.</td></tr>';
+        const td = historyTableBody.insertRow().insertCell();
+        td.colSpan = 5;
+        td.className = 'history-empty';
+        td.textContent = 'No sessions yet — your walks will appear here.';
+        return;
     }
+    sessions.forEach((s, i) => {
+        let avgSpeedDisplay = '—';
+        const avgSpeed = parseFloat(s.avgSpeed);
+        if (!isNaN(avgSpeed)) {
+            avgSpeedDisplay = avgSpeed.toFixed(2) + ' ' + (s.speedUnit || '');
+        }
+        const tr = historyTableBody.insertRow();
+        const addCell = (text, className) => {
+            const td = tr.insertCell();
+            td.textContent = text;
+            if (className) td.className = className;
+            return td;
+        };
+        addCell(formatSessionDate(s.date));
+        addCell(formatDuration(s.duration || 0));
+        addCell(s.calories || '—', 'num');
+        addCell(avgSpeedDisplay, 'num');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'history-action-btn';
+        deleteBtn.title = 'Delete';
+        deleteBtn.setAttribute('aria-label', 'Delete walk');
+        deleteBtn.dataset.index = i;
+        deleteBtn.innerHTML = TRASH_ICON_SVG;
+        addCell('', 'num').appendChild(deleteBtn);
+    });
 }
-window.deleteSessionFromTable = function (idx) {
+historyTableBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.history-action-btn');
+    if (!btn) return;
+    const idx = Number(btn.dataset.index);
+    const session = loadSessions()[idx];
+    if (!session || !confirm(`Delete the walk from ${formatSessionDate(session.date)}?`)) return;
     deleteSession(idx);
     if (window.goals && window.goals.refresh) window.goals.refresh();
-};
+});
 
 window.loadSessions = loadSessions;
 window.saveSessions = saveSessions;
@@ -157,7 +184,6 @@ function updateDashboard(data) {
     speedDiv.textContent = data.speed || '—';
     distanceDiv.textContent = data.distance || '—';
     caloriesDiv.textContent = data.calories || '—';
-    stepsDiv.textContent = (data.steps !== undefined && data.steps !== null && data.steps !== '-') ? data.steps : '—';
     if (data.duration && typeof data.duration === 'number') {
         durationDiv.textContent = formatDuration(data.duration);
     } else if (typeof data.duration === 'string' && !isNaN(parseFloat(data.duration))) {
@@ -210,7 +236,34 @@ function updateRunningState(state) {
                 setStatus('Disconnected');
         }
     }
+    syncWakeLock();
 }
+
+// Keep the display (and with it the Mac) awake while the belt runs; a sleeping machine drops the BLE link mid-walk.
+let wakeLock = null;
+let wakeLockPending = false;
+let wakeLockFailedAt = 0;
+function syncWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    const wanted = connected && runningState === 1 && document.visibilityState === 'visible';
+    if (wanted && !wakeLock && !wakeLockPending && Date.now() - wakeLockFailedAt > 30000) {
+        wakeLockPending = true;
+        navigator.wakeLock.request('screen').then(lock => {
+            wakeLockPending = false;
+            wakeLock = lock;
+            lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+            syncWakeLock();
+        }).catch(() => {
+            wakeLockPending = false;
+            wakeLockFailedAt = Date.now();
+        });
+    } else if (!wanted && wakeLock) {
+        const lock = wakeLock;
+        wakeLock = null;
+        lock.release().catch(() => {});
+    }
+}
+document.addEventListener('visibilitychange', syncWakeLock);
 function formatDuration(seconds) {
     seconds = Math.floor(seconds);
     const h = Math.floor(seconds / 3600);
@@ -224,26 +277,102 @@ function formatDuration(seconds) {
 }
 
 let pendingData = null;
+let lastCommandMs = 0;
 function send_data(packet) {
     pendingData = packet;
+    lastCommandMs = Date.now();
+}
+
+// The slider follows the treadmill's own target speed, so it is right after connecting mid-walk or
+// after a change on the remote. Otherwise +/- would step from a stale value (e.g. 4.0 → 1.1).
+// It holds off while the user drags the slider or a command of ours is still taking effect.
+const SPEED_FOLLOW_GRACE_MS = 3000;
+const SPEED_FOLLOW_FALLBACK_GRACE_MS = 15000;
+let sliderHeld = false;
+function followTreadmillSpeed(targetSpeed, currentSpeed) {
+    if (pendingData || sliderHeld) return;
+    const sinceCommand = Date.now() - lastCommandMs;
+    let speed;
+    if (targetSpeed >= 1000 && targetSpeed <= 6000) {
+        if (sinceCommand < SPEED_FOLLOW_GRACE_MS) return;
+        speed = targetSpeed;
+    } else {
+        // No usable target speed: the current speed lags while the belt ramps up, so wait longer after a command.
+        if (sinceCommand < SPEED_FOLLOW_FALLBACK_GRACE_MS) return;
+        speed = currentSpeed;
+    }
+    speed = Math.round(speed / 100) * 100;
+    if (speed < 1000 || speed > 6000 || speed === curTargetSpeed) return;
+    curTargetSpeed = speed;
+    syncSliderToTargetSpeed();
+}
+
+function bluetoothUnavailableMessage() {
+    if (!window.isSecureContext) {
+        return 'Bluetooth only works on a secure page. Open this app via https:// or http://localhost, not as a file or LAN address.';
+    }
+    if (!navigator.bluetooth) {
+        return IS_MAC
+            ? 'Safari and Firefox can\'t talk to Bluetooth devices. Open this page in Chrome, Edge or Arc.'
+            : 'This browser has no Web Bluetooth. Open this page in Chrome, Edge or Arc.';
+    }
+    return '';
+}
+
+const BLUETOOTH_OFF_MESSAGE = IS_MAC
+    ? 'Bluetooth is off or this browser may not use it. Turn it on in Control Center, and allow your browser under System Settings → Privacy & Security → Bluetooth.'
+    : 'Bluetooth is off or no adapter was found.';
+
+function showBluetoothNotice(message) {
+    if (!btNotice) return;
+    btNotice.textContent = message;
+    btNotice.hidden = !message;
+}
+
+async function checkBluetoothSupport() {
+    const unsupported = bluetoothUnavailableMessage();
+    if (unsupported) {
+        showBluetoothNotice(unsupported);
+        connectBtn.disabled = true;
+        return;
+    }
+    if (!navigator.bluetooth.getAvailability) return;
+    const update = available => showBluetoothNotice(available ? '' : BLUETOOTH_OFF_MESSAGE);
+    navigator.bluetooth.addEventListener('availabilitychanged', e => update(e.value));
+    update(await navigator.bluetooth.getAvailability().catch(() => true));
+}
+
+function describeBluetoothError(err) {
+    const text = String((err && err.message) || err);
+    if (err && err.name === 'NotFoundError' && /cancel/i.test(text)) return '';
+    if (/globally disabled/i.test(text)) {
+        return 'Web Bluetooth is turned off in this browser. In Brave, enable brave://flags/#brave-web-bluetooth-api and relaunch.';
+    }
+    if (/adapter not available|bluetooth.*(off|unavailable)/i.test(text)) return BLUETOOTH_OFF_MESSAGE;
+    return 'Bluetooth error: ' + text;
 }
 
 async function connectBluetooth() {
+    const unsupported = bluetoothUnavailableMessage();
+    if (unsupported) {
+        showToast(unsupported, 6000);
+        return;
+    }
     setStatus('Connecting');
     if (loadingOverlay) loadingOverlay.style.display = 'flex';
     try {
-        console.log("Requesting Bluetooth device...");
+        debugLog("Requesting Bluetooth device...");
         device = await navigator.bluetooth.requestDevice({
             filters: [{ services: [SERVICE_UUID] }],
             services: [SERVICE_UUID]
         });
-        console.log("Device selected:", device);
+        debugLog("Device selected:", device);
         setStatus('Connecting');
         device.addEventListener('gattserverdisconnected', onDisconnected);
         server = await device.gatt.connect();
-        console.log("GATT server connected:", server);
+        debugLog("GATT server connected:", server);
         let services = await server.getPrimaryServices();
-        console.log("Primary services:", services.map(s => s.uuid));
+        debugLog("Primary services:", services.map(s => s.uuid));
         notifyChar = await server.getPrimaryService(SERVICE_UUID).then(
             service => service.getCharacteristic(NOTIFY_CHAR_UUID)
         ).catch(async () => {
@@ -257,7 +386,7 @@ async function connectBluetooth() {
             }
             throw new Error("Notify characteristic not found");
         });
-        console.log("Notify characteristic:", notifyChar);
+        debugLog("Notify characteristic:", notifyChar);
         writeChar = await server.getPrimaryService(SERVICE_UUID).then(
             service => service.getCharacteristic(WRITE_CHAR_UUID)
         ).catch(async () => {
@@ -270,7 +399,7 @@ async function connectBluetooth() {
             }
             throw new Error("Write characteristic not found");
         });
-        console.log("Write characteristic:", writeChar);
+        debugLog("Write characteristic:", writeChar);
         await notifyChar.startNotifications();
         notifyChar.addEventListener('characteristicvaluechanged', handleNotification);
         connected = true;
@@ -281,7 +410,9 @@ async function connectBluetooth() {
         if (loadingOverlay) loadingOverlay.style.display = 'none';
     } catch (err) {
         console.error("Bluetooth connection error:", err);
-        showToast("Bluetooth error: " + err);
+        const message = describeBluetoothError(err);
+        if (message) showToast(message, 6000);
+        if (device && device.gatt.connected) device.gatt.disconnect();
         setStatus('Disconnected');
         connected = false;
         setConnectButtonState(false);
@@ -311,19 +442,13 @@ function onDisconnected() {
 function handleNotification(event) {
     const value = event.target.value;
 
-    console.log("Received notification, byteLength:", value.byteLength);
-    let hexStr = [];
-    for (let i = 0; i < value.byteLength; ++i) {
-        hexStr.push(value.getUint8(i).toString(16).padStart(2, "0"));
-    }
-    console.log("Payload (hex):", hexStr.join(" "));
+    if (DEBUG) debugLog(`Notification (${value.byteLength} bytes):`, toHex(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)));
 
     if (value.byteLength < 31) {
         treadmillData = {
             speed: "-",
             distance: "-",
             calories: "-",
-            steps: "-",
             duration: "-",
             status: "Invalid"
         };
@@ -344,9 +469,9 @@ function handleNotification(event) {
     }
 
     const current_speed = u16(3);
+    const target_speed = u16(5);
     const distance = u32(7);
     const calories = (value.getUint8(18) << 8) | value.getUint8(19);
-    const steps = u32(14);
     const duration = u32(20);
     const flags = value.getUint8(26);
     const unit_mode = (flags & 128) === 128 ? 1 : 0;
@@ -363,15 +488,15 @@ function handleNotification(event) {
         speed: (current_speed / 1000).toFixed(2) + " " + speed_unit,
         distance: (distance / 1000).toFixed(2) + " " + distance_unit,
         calories: calories + " kcal",
-        steps: steps,
         duration: Math.round(duration / 1000),
         status: statusArr[running_state] || "Unknown",
-        _raw: { current_speed, distance, calories, steps, duration, speed_unit }
+        _raw: { current_speed, target_speed, distance, calories, duration, speed_unit }
     };
 
-    console.log("Parsed treadmill data:", treadmillData);
+    debugLog("Parsed treadmill data:", treadmillData);
     updateDashboard(treadmillData);
     updateRunningState(running_state);
+    if (running_state === 1) followTreadmillSpeed(target_speed, current_speed);
 
     const MERGE_WINDOW_MS = 60 * 1000;
     const MAX_TICK_MS = 10 * 1000;
@@ -387,14 +512,13 @@ function handleNotification(event) {
                 const lastEnd = last.date + last.duration * 1000;
                 const inWindow = now - lastEnd < MERGE_WINDOW_MS && now - lastEnd > -MAX_TICK_MS;
                 const prevKcal = parseFloat(last.calories) || 0;
-                const countersConsistent = steps >= (last.steps || 0) && calories >= prevKcal;
+                const countersConsistent = calories >= prevKcal;
                 if (inWindow && countersConsistent) resumed = last;
             }
             if (resumed) {
                 const prevKcal = parseFloat(resumed.calories) || 0;
                 sessionStartData = {
                     date: resumed.date,
-                    stepsBase: steps - (resumed.steps || 0),
                     calBase: calories - prevKcal,
                     durMsAccum: (resumed.duration || 0) * 1000,
                     lastTickMs: now,
@@ -405,7 +529,6 @@ function handleNotification(event) {
             } else {
                 sessionStartData = {
                     date: now,
-                    stepsBase: steps,
                     calBase: calories,
                     durMsAccum: 0,
                     lastTickMs: now,
@@ -424,13 +547,11 @@ function handleNotification(event) {
         }
 
         const durationSec = Math.round(sessionStartData.durMsAccum / 1000);
-        const sessionSteps = Math.max(0, steps - sessionStartData.stepsBase);
         const sessionCal = Math.max(0, calories - sessionStartData.calBase);
         const avgSpeed = (sessionStartData.speedSum / sessionStartData.speedCount) / 1000;
         upsertLiveSession({
             date: sessionStartData.date,
             duration: durationSec,
-            steps: sessionSteps,
             calories: sessionCal + ' kcal',
             avgSpeed: avgSpeed,
             speedUnit: sessionStartData.speedUnit || ''
@@ -444,9 +565,9 @@ function handleNotification(event) {
 
     if (writeChar) {
         if (pendingData) {
-            console.log("Sending pending data packet:", Array.from(pendingData).map(b => b.toString(16).padStart(2, "0")).join(" "));
+            debugLog("Sending pending data packet:", toHex(pendingData));
             writeChar.writeValue(pendingData).then(() => {
-                console.log("Pending data sent.");
+                debugLog("Pending data sent.");
                 pendingData = null;
             }).catch(err => {
                 console.error("Failed to send pending data:", err);
@@ -454,7 +575,7 @@ function handleNotification(event) {
         } else {
 
             const heartbeat = new Uint8Array([0x6a, 0x05, 0xfd, 0xf8, 0x43]);
-            console.log("Sending heartbeat packet:", Array.from(heartbeat).map(b => b.toString(16).padStart(2, "0")).join(" "));
+            debugLog("Sending heartbeat packet:", toHex(heartbeat));
             writeChar.writeValue(heartbeat).catch(err => {
                 console.error("Failed to send heartbeat:", err);
             });
@@ -465,7 +586,7 @@ function handleNotification(event) {
 async function sendCommand(packet) {
     if (!writeChar) return;
     try {
-        console.log("Sending command packet:", Array.from(packet).map(b => b.toString(16).padStart(2, "0")).join(" "));
+        debugLog("Sending command packet:", toHex(packet));
         await writeChar.writeValue(packet);
     } catch (err) {
         console.error("Failed to send command:", err);
@@ -575,6 +696,8 @@ speedDownBtn.addEventListener('click', () => {
 speedSlider.addEventListener('input', () => {
     sliderValue.textContent = parseFloat(speedSlider.value).toFixed(1);
 });
+speedSlider.addEventListener('pointerdown', () => { sliderHeld = true; });
+['pointerup', 'pointercancel'].forEach(type => window.addEventListener(type, () => { sliderHeld = false; }));
 speedSlider.addEventListener('change', () => {
     if (!connected) return;
     curTargetSpeed = Math.round(parseFloat(speedSlider.value) * 1000);
@@ -585,18 +708,11 @@ updateDashboard({});
 updateRunningState(3);
 sliderValue.textContent = speedSlider.value;
 renderSessionTable();
+checkBluetoothSupport();
 
-function saveCurrentSession(session) {
-    localStorage.setItem('treadmill_current_session', JSON.stringify(session));
-}
-function loadCurrentSession() {
-    try {
-        return JSON.parse(localStorage.getItem('treadmill_current_session')) || null;
-    } catch { return null; }
-}
-function clearCurrentSession() {
-    localStorage.removeItem('treadmill_current_session');
-}
+window.treadmill = {
+    isWalking: () => sessionActive
+};
 
 function upsertLiveSession(session) {
     let sessions = loadSessions();
@@ -619,10 +735,29 @@ function finishSession(reason) {
     }
 }
 
-const restored = loadCurrentSession();
-if (restored && !sessionActive) {
-    sessionActive = true;
-    sessionStartData = restored;
+function isValidSession(s) {
+    return s !== null && typeof s === 'object'
+        && typeof s.date === 'number' && Number.isFinite(s.date)
+        && typeof s.duration === 'number' && Number.isFinite(s.duration) && s.duration >= 0;
+}
+
+// Import merges instead of replacing, so walks recorded on two machines can be combined.
+// A walk is identified by its start time; on a clash the longer recording wins.
+function mergeSessions(existing, incoming) {
+    const byDate = new Map(existing.map(s => [s.date, s]));
+    let added = 0, updated = 0;
+    for (const s of incoming) {
+        const prev = byDate.get(s.date);
+        if (!prev) {
+            byDate.set(s.date, s);
+            added++;
+        } else if (s.duration > (prev.duration || 0)) {
+            byDate.set(s.date, s);
+            updated++;
+        }
+    }
+    const merged = Array.from(byDate.values()).sort((a, b) => (Number(b.date) || 0) - (Number(a.date) || 0));
+    return { merged, added, updated };
 }
 
 if (exportHistoryBtn) {
@@ -632,7 +767,7 @@ if (exportHistoryBtn) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'treadmill_sessions.json';
+        a.download = `treadmill-history-${new Date().toLocaleDateString('sv-SE')}.json`;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
@@ -655,14 +790,21 @@ if (importHistoryBtn && importHistoryInput) {
         reader.onload = function(event) {
             try {
                 const imported = JSON.parse(event.target.result);
-                if (Array.isArray(imported)) {
-                    saveSessions(imported);
-                    renderSessionTable();
-                    if (window.goals && window.goals.refresh) window.goals.refresh();
-                    showToast('History imported successfully.');
-                } else {
+                if (!Array.isArray(imported)) {
                     showToast('Invalid file format.');
+                    return;
                 }
+                const valid = imported.filter(isValidSession);
+                const skipped = imported.length - valid.length;
+                const { merged, added, updated } = mergeSessions(loadSessions(), valid);
+                saveSessions(merged);
+                renderSessionTable();
+                if (window.goals && window.goals.refresh) window.goals.refresh();
+                const parts = [];
+                if (added) parts.push(`${added} new walk${added === 1 ? '' : 's'}`);
+                if (updated) parts.push(`${updated} updated`);
+                if (skipped) parts.push(`${skipped} unreadable skipped`);
+                showToast(parts.length ? 'Imported ' + parts.join(', ') + '.' : 'Nothing new to import.');
             } catch (err) {
                 showToast('Failed to import: ' + err);
             }

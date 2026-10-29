@@ -3,9 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>Treadmill</title>
+    <meta name="description" content="Control a PitPat treadmill over Web Bluetooth and track a daily walking goal. No account, no server.">
     <link rel="manifest" href="manifest.webmanifest">
-    <meta name="theme-color" content="#3f51b5">
+    <meta name="theme-color" content="#fdf6e3">
+    <meta name="color-scheme" content="light">
     <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         :root {
@@ -226,7 +230,6 @@
         }
         .session-chip:nth-child(3n+2) { background: var(--blue); }
         .session-chip:nth-child(3n) { background: var(--lime); }
-        .session-chip .chip-meta { font-weight: 600; opacity: 0.85; margin-left: 4px; }
         .session-chip--short { background: var(--surface) !important; color: var(--ink-mute); }
         .session-chip--empty {
             background: transparent;
@@ -403,9 +406,9 @@
         .stat:nth-child(1) .stat-label-pill { background: var(--yellow); }
         .stat:nth-child(2) .stat-label-pill { background: var(--pink); }
         .stat:nth-child(3) .stat-label-pill { background: var(--lime); }
-        .stat:nth-child(4) .stat-label-pill { background: var(--blue); }
-        .stat:nth-child(5) .stat-label-pill { background: var(--orange); }
-        .stat:nth-child(6) .stat-label-pill { background: var(--surface); }
+        .stat:nth-child(4) .stat-label-pill { background: var(--orange); }
+        .stat:nth-child(5) .stat-label-pill { background: var(--surface); }
+        .stat--wide { grid-column: span 2; }
         .stat-label-pill {
             display: inline-block;
             background: var(--yellow);
@@ -732,6 +735,18 @@
             font-weight: 700;
         }
         .notif-prompt-text { flex: 1; }
+        .bt-notice {
+            background: var(--orange);
+            border: 3px solid var(--ink);
+            box-shadow: var(--shadow-sm);
+            padding: 0.9em 1.2em;
+            margin-bottom: 1.4em;
+            font-size: 0.92em;
+            color: var(--ink);
+            font-weight: 700;
+            line-height: 1.45;
+        }
+        .bt-notice[hidden] { display: none; }
         .notif-prompt button {
             background: var(--ink);
             border: 2px solid var(--ink);
@@ -845,6 +860,7 @@
             0%, 100% { box-shadow: 3px 3px 0 var(--ink); }
             50%      { box-shadow: 6px 6px 0 var(--ink); }
         }
+        .btn-header.btn-primary:disabled { animation: none; }
         @media (prefers-reduced-motion: reduce) {
             .btn-header.btn-primary { animation: none; }
         }
@@ -898,6 +914,7 @@
     <main>
         <section class="panel is-active" id="controls-panel" role="tabpanel">
             <div class="container">
+                <div id="btNotice" class="bt-notice" role="alert" hidden></div>
                 <div id="notifPrompt" class="notif-prompt">
                     <span class="notif-prompt-text">Enable smart walk reminders during weekdays?</span>
                     <button id="notifPromptYes">Enable</button>
@@ -929,14 +946,10 @@
                         <span class="stat-value" id="duration">—</span>
                     </div>
                     <div class="stat">
-                        <span class="stat-label-pill">Steps</span>
-                        <span class="stat-value" id="steps">—</span>
-                    </div>
-                    <div class="stat">
                         <span class="stat-label-pill">Calories</span>
                         <span class="stat-value" id="calories">—</span>
                     </div>
-                    <div class="stat">
+                    <div class="stat stat--wide">
                         <span class="stat-label-pill">Status</span>
                         <span id="statusChip" class="status-chip chip-disconnected">
                             <span class="status-dot"></span>
@@ -996,7 +1009,6 @@
                             <tr>
                                 <th>Date</th>
                                 <th>Duration</th>
-                                <th class="num">Steps</th>
                                 <th class="num">Calories</th>
                                 <th class="num">Avg Speed</th>
                                 <th></th>
@@ -1053,7 +1065,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@4.1.0/cdn.min.js"></script>
     <script src="treadmill.js"></script>
     <script src="goals.js"></script>
     <script src="notifications.js"></script>

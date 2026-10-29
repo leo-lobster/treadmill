@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'treadmill-v5';
+const CACHE_NAME = 'treadmill-v7';
 const SHELL = [
     './',
     './index.html',
@@ -8,22 +8,16 @@ const SHELL = [
     './notifications.js',
     './manifest.webmanifest',
     './icon.svg',
-    'https://cdn.jsdelivr.net/npm/date-fns@4.1.0/cdn.min.js',
-    'https://code.getmdl.io/1.3.0/material.blue-light_blue.min.css',
-    'https://code.getmdl.io/1.3.0/material.min.js',
-    'https://fonts.googleapis.com/icon?family=Material+Icons'
+    './icons/icon-192.png',
+    './icons/icon-512.png',
+    './icons/icon-maskable-512.png',
+    './icons/favicon-32.png',
+    './icons/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache =>
-
-            Promise.all(SHELL.map(url =>
-                cache.add(new Request(url, { mode: 'no-cors' })).catch(() => {})
-            ))
-        )
-    );
+    event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)));
 });
 
 self.addEventListener('activate', (event) => {
@@ -37,19 +31,28 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Network first: a new deploy shows up on the next online launch. The cache only answers
+// when offline, or when the local dev server isn't running. 'no-cache' makes the browser
+// revalidate with the server, so its HTTP cache can't hand out an old index.html next to new scripts.
 self.addEventListener('fetch', (event) => {
-    if (event.request.method !== 'GET') return;
+    const request = event.request;
+    if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+    // A navigation request can't be copied with new options, so fetch it by URL.
+    const fresh = request.mode === 'navigate'
+        ? fetch(request.url, { cache: 'no-cache' })
+        : fetch(request, { cache: 'no-cache' });
     event.respondWith(
-        caches.match(event.request).then(cached => {
-            const fetchPromise = fetch(event.request).then(resp => {
-                if (resp && resp.status === 200 && resp.type === 'basic') {
-                    const respClone = resp.clone();
-                    caches.open(CACHE_NAME).then(c => c.put(event.request, respClone)).catch(() => {});
-                }
-                return resp;
-            }).catch(() => cached);
-            return cached || fetchPromise;
-        })
+        fresh.then(resp => {
+            if (resp.ok && resp.type === 'basic') {
+                const respClone = resp.clone();
+                caches.open(CACHE_NAME).then(c => c.put(request, respClone)).catch(() => {});
+            }
+            return resp;
+        }).catch(() =>
+            caches.match(request, { ignoreSearch: true }).then(cached =>
+                cached || (request.mode === 'navigate' ? caches.match('./index.html') : Response.error())
+            )
+        )
     );
 });
 
@@ -240,8 +243,8 @@ async function runGoalCheck() {
         body: msg.body,
         tag: 'treadmill-' + trigger,
         renotify: false,
-        icon: 'icon.svg',
-        badge: 'icon.svg',
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
         data: { trigger, urgency, ts: Date.now() }
     });
 
